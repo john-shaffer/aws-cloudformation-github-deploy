@@ -100,3 +100,6 @@ lib/**/*
 
 # Intellij IDEA metadata
 .idea/
+
+# nix-direnv cache
+.direnv/
