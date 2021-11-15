@@ -100,7 +100,7 @@ export async function updateStack(
   return stack.StackId
 }
 
-async function getStack(
+export async function getStack(
   cfn: aws.CloudFormation,
   stackNameOrId: string
 ): Promise<Stack | undefined> {

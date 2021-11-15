@@ -2,7 +2,7 @@ import * as path from 'path'
 import * as core from '@actions/core'
 import * as aws from 'aws-sdk'
 import * as fs from 'fs'
-import { deployStack, getStackOutputs } from './deploy'
+import { deployStack, getStack, getStackOutputs } from './deploy'
 import {
   isUrl,
   parseTags,
@@ -58,6 +58,11 @@ export async function run(): Promise<void> {
     const disableRollback = !!+core.getInput('disable-rollback', {
       required: false
     })
+    const skipDeploy = parseNumber(
+      core.getInput('skip-deploy', {
+        required: false
+      })
+    )
     const timeoutInMinutes = parseNumber(
       core.getInput('timeout-in-minutes', {
         required: false
@@ -82,52 +87,65 @@ export async function run(): Promise<void> {
       required: false
     })
 
-    // Setup CloudFormation Stack
-    let templateBody
-    let templateUrl
+    if (skipDeploy) {
+      const stack = await getStack(cfn, stackName)
+      const stackId = stack ? stack.StackId : null
+      core.setOutput('stack-id', stackId || 'UNKNOWN')
 
-    if (isUrl(template)) {
-      core.debug('Using CloudFormation Stack from Amazon S3 Bucket')
-      templateUrl = template
+      if (stackId) {
+        const outputs = await getStackOutputs(cfn, stackId)
+        for (const [key, value] of outputs) {
+          core.setOutput(key, value)
+        }
+      }
     } else {
-      core.debug('Loading CloudFormation Stack template')
-      const templateFilePath = path.isAbsolute(template)
-        ? template
-        : path.join(GITHUB_WORKSPACE, template)
-      templateBody = fs.readFileSync(templateFilePath, 'utf8')
-    }
+      // Setup CloudFormation Stack
+      let templateBody
+      let templateUrl
 
-    // CloudFormation Stack Parameter for the creation or update
-    const params: CreateStackInput = {
-      StackName: stackName,
-      Capabilities: [...capabilities.split(',').map(cap => cap.trim())],
-      RoleARN: roleARN,
-      NotificationARNs: notificationARNs,
-      DisableRollback: disableRollback,
-      TimeoutInMinutes: timeoutInMinutes,
-      TemplateBody: templateBody,
-      TemplateURL: templateUrl,
-      Tags: tags,
-      EnableTerminationProtection: terminationProtections
-    }
+      if (isUrl(template)) {
+        core.debug('Using CloudFormation Stack from Amazon S3 Bucket')
+        templateUrl = template
+      } else {
+        core.debug('Loading CloudFormation Stack template')
+        const templateFilePath = path.isAbsolute(template)
+          ? template
+          : path.join(GITHUB_WORKSPACE, template)
+        templateBody = fs.readFileSync(templateFilePath, 'utf8')
+      }
 
-    if (parameterOverrides) {
-      params.Parameters = parseParameters(parameterOverrides.trim())
-    }
+      // CloudFormation Stack Parameter for the creation or update
+      const params: CreateStackInput = {
+        StackName: stackName,
+        Capabilities: [...capabilities.split(',').map(cap => cap.trim())],
+        RoleARN: roleARN,
+        NotificationARNs: notificationARNs,
+        DisableRollback: disableRollback,
+        TimeoutInMinutes: timeoutInMinutes,
+        TemplateBody: templateBody,
+        TemplateURL: templateUrl,
+        Tags: tags,
+        EnableTerminationProtection: terminationProtections
+      }
 
-    const stackId = await deployStack(
-      cfn,
-      params,
-      noEmptyChangeSet,
-      noExecuteChageSet,
-      noDeleteFailedChangeSet
-    )
-    core.setOutput('stack-id', stackId || 'UNKNOWN')
+      if (parameterOverrides) {
+        params.Parameters = parseParameters(parameterOverrides.trim())
+      }
 
-    if (stackId) {
-      const outputs = await getStackOutputs(cfn, stackId)
-      for (const [key, value] of outputs) {
-        core.setOutput(key, value)
+      const stackId = await deployStack(
+        cfn,
+        params,
+        noEmptyChangeSet,
+        noExecuteChageSet,
+        noDeleteFailedChangeSet
+      )
+      core.setOutput('stack-id', stackId || 'UNKNOWN')
+
+      if (stackId) {
+        const outputs = await getStackOutputs(cfn, stackId)
+        for (const [key, value] of outputs) {
+          core.setOutput(key, value)
+        }
       }
     }
   } catch (err) {
